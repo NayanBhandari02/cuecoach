@@ -32,7 +32,16 @@ iniconfig==2.3.0
 orjson==3.11.5
     # via -r requirements.in
 packaging==26.0
-    # via pytest
+    # via
+    #   pytesseract
+    #   pytest
+pdf2image==1.17.0
+    # via -r requirements.in
+pillow==12.1.0
+    # via
+    #   -r requirements.in
+    #   pdf2image
+    #   pytesseract
 pluggy==1.6.0
     # via pytest
 pydantic==2.12.5
@@ -46,6 +55,10 @@ pydantic-settings==2.12.0
     # via -r requirements.in
 pygments==2.19.2
     # via pytest
+pypdf==6.6.2
+    # via -r requirements.in
+pytesseract==0.3.13
+    # via -r requirements.in
 pytest==9.0.2
     # via -r requirements.in
 python-dotenv==1.2.1

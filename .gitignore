@@ -3,3 +3,7 @@ cuec/
 __pycache__/
 *.pyc
 .env
+data/raw/
+data/extracted/
+data/processed/
+data/ocr/

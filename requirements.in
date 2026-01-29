@@ -6,3 +6,7 @@ orjson
 python-dotenv
 pytest
 ruff
+pytesseract
+Pillow
+pdf2image
+pypdf
