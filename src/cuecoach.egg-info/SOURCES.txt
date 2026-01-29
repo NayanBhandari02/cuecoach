@@ -6,4 +6,6 @@ src/cuecoach.egg-info/SOURCES.txt
 src/cuecoach.egg-info/dependency_links.txt
 src/cuecoach.egg-info/requires.txt
 src/cuecoach.egg-info/top_level.txt
+src/cuecoach/rag/schemas.py
+tests/test_chunk_schema.py
 tests/test_sanity.py
