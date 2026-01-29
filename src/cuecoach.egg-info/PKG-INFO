@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: cuecoach
+Version: 0.1.0
+Summary: CueCoach RAG API (Pinecone + OpenAI) for learning billiards
+Requires-Python: >=3.12
+Requires-Dist: fastapi==0.128.0
+Requires-Dist: uvicorn==0.40.0
+Requires-Dist: pydantic==2.12.5
+Requires-Dist: pydantic-settings==2.12.0
+Requires-Dist: orjson==3.11.5
+Provides-Extra: dev
+Requires-Dist: pytest==9.0.2; extra == "dev"
+Requires-Dist: ruff==0.14.14; extra == "dev"
