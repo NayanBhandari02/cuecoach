@@ -3,6 +3,9 @@ data/raw/
 data/extracted/
 data/processed/
 data/ocr/
+# Generated chunks (RAG artifacts)
+data/chunks/
+
 
 # Virtual environments
 .venv/
