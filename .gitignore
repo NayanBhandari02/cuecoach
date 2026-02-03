@@ -1,9 +1,23 @@
-cuec/
-.venv/
-__pycache__/
-*.pyc
-.env
+#Data
 data/raw/
 data/extracted/
 data/processed/
 data/ocr/
+
+# Virtual environments
+.venv/
+venv/
+cuec/
+cuecoach-env/
+
+# Python cache
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# Local / scratch files
+random.txt
+
+# OS junk
+.DS_Store
+Thumbs.db

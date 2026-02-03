@@ -42,6 +42,8 @@ def chunk_text(
     cleaned = "\n".join([line.rstrip() for line in text.splitlines()]).strip()
     if not cleaned:
         return []
+    if overlap_chars >= max_chars:
+        raise ValueError("overlap_chars must be < max_chars")
 
     # Split by blank lines (paragraph-ish). Works well for instructional articles and rules PDFs.
     parts = [p.strip() for p in cleaned.split("\n\n") if p.strip()]
@@ -61,14 +63,38 @@ def chunk_text(
 
             # Start new buffer with overlap tail
             tail = buf[-overlap_chars:] if overlap_chars > 0 else ""
+            if tail:
+                # Prefer starting overlap at a whitespace boundary to avoid mid-word starts,
+                # but don't destroy overlap when the tail has no whitespace (e.g., "AAAAA...").
+                first_ws = None
+                for j, ch in enumerate(tail):
+                    if ch.isspace():
+                        first_ws = j
+                        break
+                if first_ws is not None:
+                    tail = tail[first_ws:].lstrip()
             buf = (tail + "\n\n" + p).strip() if tail else p
         else:
-            # Single paragraph too large: hard split
+            # Single paragraph too large: safe hard split with guaranteed progress
+            if overlap_chars >= max_chars:
+                raise ValueError("overlap_chars must be < max_chars to guarantee progress")
+
             start = 0
-            while start < len(p):
-                end = min(start + max_chars, len(p))
-                chunks.append(p[start:end].strip())
-                start = max(0, end - overlap_chars)
+            n = len(p)
+            while start < n:
+                end = min(start + max_chars, n)
+                piece = p[start:end].strip()
+                if piece:
+                    chunks.append(piece)
+
+                if end >= n:
+                    break  # ✅ important: stop after writing the final chunk
+
+                # next start keeps overlap but MUST move forward
+                next_start = end - overlap_chars
+                if next_start <= start:
+                    next_start = end  # ✅ fallback: no overlap, but progress is guaranteed
+                start = next_start
 
             buf = ""
 

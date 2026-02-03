@@ -13,11 +13,20 @@ def test_chunk_text_returns_chunks_with_ids():
 
 
 def test_chunk_overlap_present():
-    text = "A" * 100 + "\n\n" + "B" * 100
+    text = ("A " * 80) + "\n\n" + ("B " * 80)  # includes whitespace
     meta = DocMeta(doc_id="doc2", source="Test", title="T")
     chunks = chunk_text(text, meta, max_chars=120, overlap_chars=20)
 
     assert len(chunks) >= 2
-    # overlap means the end of chunk1 should appear in chunk2
     tail = chunks[0].text[-20:]
     assert tail in chunks[1].text
+
+def test_chunk_does_not_start_midword():
+    text = ("word " * 120) + "automatic opening break " + ("word " * 120)
+    meta = DocMeta(doc_id="doc3", source="Test", title="T")
+    chunks = chunk_text(text, meta, max_chars=520, overlap_chars=50)
+
+    assert len(chunks) >= 2
+    # second chunk should not start with a chopped fragment like "atic" or "ening"
+    bad_prefixes = ("atic", "ening", "utom", "pen")
+    assert not chunks[1].text.lstrip().startswith(bad_prefixes)
