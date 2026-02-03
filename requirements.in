@@ -10,3 +10,6 @@ pytesseract
 Pillow
 pdf2image
 pypdf
+pytesseract
+pypdfium2
+pillow
