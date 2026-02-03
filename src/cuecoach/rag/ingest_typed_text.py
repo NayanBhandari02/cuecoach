@@ -1,49 +1,72 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from cuecoach.rag.chunking import DocMeta, chunk_text
+from cuecoach.rag.extract_pdf_text import extract_pdf_text
 
 
-def main() -> None:
-    # Input extracted text (from your extraction step)
-    txt_path = Path("data/extracted/typed_text/2025.07.19-Pyramid-Rules.txt")
-    if not txt_path.exists():
-        raise SystemExit(f"Missing file: {txt_path}")
+def _slugify(name: str) -> str:
+    """Simple, stable doc_id from filename."""
+    base = Path(name).stem.lower()
+    base = re.sub(r"[^a-z0-9]+", "_", base).strip("_")
+    return base or "doc"
 
-    text = txt_path.read_text(encoding="utf-8")
 
-    # Metadata: this becomes filters later in Pinecone
-    meta = DocMeta(
-        doc_id="pyramid_rules_2025_07_19",
-        source="IPC / Pyramid",
-        title="Pyramid General Rules (2025-07-19)",
-        topic="rules",
-        skill_level="beginner",
-    )
-
-    # Chunk it
-    chunks = chunk_text(text, meta, max_chars=1400, overlap_chars=200)
-
-    # Output location
-    out_dir = Path("data/processed/chunks")
+def ingest_typed_pdfs(
+    raw_dir: Path,
+    out_dir: Path,
+    *,
+    max_chars: int = 1400,
+    overlap_chars: int = 200,
+) -> None:
+    raw_dir = raw_dir.resolve()
+    out_dir = out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{meta.doc_id}.jsonl"
 
-    # Save as JSONL (one chunk per line)
-    with out_path.open("w", encoding="utf-8") as f:
-        for c in chunks:
-            f.write(c.model_dump_json())
-            f.write("\n")
+    pdfs = sorted(raw_dir.glob("*.pdf"))
+    if not pdfs:
+        raise FileNotFoundError(f"No PDFs found in: {raw_dir}")
 
-    print(f"Wrote {len(chunks)} chunks to {out_path}\n")
+    print(f"Found {len(pdfs)} typed PDFs in: {raw_dir}")
+    print(f"Writing chunks to: {out_dir}\n")
 
-    # Preview first 3 chunks
-    for c in chunks[:3]:
-        print("=" * 90)
-        print(c.chunk_id)
-        print(c.text[:500])
+    for pdf_path in pdfs:
+        doc_id = _slugify(pdf_path.name)
+        title = pdf_path.stem
+
+        # Text extraction (typed PDFs only)
+        text = extract_pdf_text(pdf_path)
+
+        meta = DocMeta(
+            doc_id=doc_id,
+            source="typed_pdf",
+            title=title,
+            topic="misc",
+            skill_level="beginner",
+        )
+
+        chunks = chunk_text(text, meta, max_chars=max_chars, overlap_chars=overlap_chars)
+
+        out_path = out_dir / f"{doc_id}.jsonl"
+        with out_path.open("w", encoding="utf-8") as f:
+            for c in chunks:
+                f.write(c.model_dump_json())
+                f.write("\n")
+
+        chars = len(text)
+        print(f"- {pdf_path.name}")
+        print(f"  doc_id: {doc_id}")
+        print(f"  extracted_chars: {chars}")
+        print(f"  chunks: {len(chunks)}")
+        print(f"  out: {out_path.relative_to(Path.cwd())}\n")
 
 
 if __name__ == "__main__":
-    main()
+    ingest_typed_pdfs(
+        raw_dir=Path("data/raw/typed"),
+        out_dir=Path("data/chunks/typed"),
+        max_chars=1400,
+        overlap_chars=200,
+    )
