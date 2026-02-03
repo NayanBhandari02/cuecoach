@@ -13,3 +13,5 @@ pypdf
 pytesseract
 pypdfium2
 pillow
+openai
+pinecone
