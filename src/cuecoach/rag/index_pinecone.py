@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
 
-
 DEFAULT_CHUNKS_DIR = Path("data/chunks")
 DEFAULT_NAMESPACE = "default"
 DEFAULT_EMBED_MODEL = "text-embedding-3-small"
