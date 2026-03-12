@@ -23,7 +23,6 @@ DEFAULT_TOP_K = 6
 # Env
 # -----------------------------
 def _load_env() -> None:
-    # load from repo root .env
     load_dotenv(dotenv_path=Path(".env"), override=False)
 
 
@@ -99,7 +98,7 @@ def build_context(matches: List[Dict[str, Any]], *, text_key: str = "text") -> s
 
 def truncate_context(context: str, max_chars: int) -> str:
     """
-    Keep the context under a limit (rough safety against huge prompts).
+    Keep the context under a limit.
     Truncate from the end because early sources are usually best matches.
     """
     context = context.strip()
@@ -108,6 +107,25 @@ def truncate_context(context: str, max_chars: int) -> str:
     if len(context) <= max_chars:
         return context
     return context[:max_chars].rstrip() + "\n"
+
+
+def select_matches_by_confidence(matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Confidence-aware trimming:
+    - < 0.42: treat as too weak
+    - 0.42 to < 0.52: keep top 4
+    - 0.52 to < 0.62: keep top 3
+    - >= 0.62: keep top 2
+    """
+    best_score = matches[0]["score"] if matches else 0.0
+
+    if best_score < 0.42:
+        return []
+    if best_score >= 0.62:
+        return matches[:2]
+    if best_score >= 0.52:
+        return matches[:3]
+    return matches[:4]
 
 
 # -----------------------------
@@ -122,7 +140,7 @@ def answer_question(
     """
     Tight grounding:
     - Use ONLY the context
-    - Quote exact phrases where possible (this helps smoke_eval keyword checks)
+    - Prefer exact wording where possible
     - No citations, no top-k dumps, just the answer
     """
     system = (
@@ -156,6 +174,39 @@ CONTEXT:
 
 
 # -----------------------------
+# Debug retrieval
+# -----------------------------
+def retrieve_debug(
+    question: str,
+    *,
+    top_k: int = DEFAULT_TOP_K,
+    min_score: float = 0.0,
+    namespace: Optional[str] = None,
+    embed_model: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    _load_env()
+
+    openai_key = require_env("OPENAI_API_KEY")
+    pinecone_key = require_env("PINECONE_API_KEY")
+    pinecone_index = require_env("PINECONE_INDEX")
+
+    ns = namespace or optional_env("PINECONE_NAMESPACE", DEFAULT_NAMESPACE)
+    emb_model = embed_model or optional_env("OPENAI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
+
+    oai = OpenAI(api_key=openai_key)
+    pc = Pinecone(api_key=pinecone_key)
+    idx = pc.Index(pinecone_index)
+
+    qvec = embed_query(oai, emb_model, question)
+    matches = pinecone_query(idx, ns, qvec, top_k)
+
+    if min_score > 0:
+        matches = [m for m in matches if m.get("score", 0.0) >= min_score]
+
+    return matches
+
+
+# -----------------------------
 # Answering (wrapper for eval/scripts)
 # -----------------------------
 def answer(
@@ -173,16 +224,15 @@ def answer(
     - Loads env
     - Builds clients
     - Retrieves context
-    - Answers the question
+    - Applies confidence gating
+    - Answers only when retrieval is strong enough
     """
     _load_env()
 
-    # Required env vars (keep in script)
     openai_key = require_env("OPENAI_API_KEY")
     pinecone_key = require_env("PINECONE_API_KEY")
     pinecone_index = require_env("PINECONE_INDEX")
 
-    # Config (env default, but overridable by function args)
     ns = namespace or optional_env("PINECONE_NAMESPACE", DEFAULT_NAMESPACE)
     emb_model = embed_model or optional_env("OPENAI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
     ch_model = chat_model or optional_env("OPENAI_CHAT_MODEL", DEFAULT_CHAT_MODEL)
@@ -197,8 +247,12 @@ def answer(
     if min_score > 0:
         matches = [m for m in matches if m.get("score", 0.0) >= min_score]
 
+    matches = select_matches_by_confidence(matches)
     context = build_context(matches)
     context = truncate_context(context, max_context_chars)
+
+    if not matches or not context.strip():
+        return "I don't know based on the provided material."
 
     return answer_question(oai, ch_model, question, context)
 
@@ -217,15 +271,13 @@ def main() -> None:
     parser.add_argument("--max-context-chars", type=int, default=12000, help="Max context chars fed to LLM")
     args = parser.parse_args()
 
-    # Required env vars (keep in script)
     openai_key = require_env("OPENAI_API_KEY")
     pinecone_key = require_env("PINECONE_API_KEY")
     pinecone_index = require_env("PINECONE_INDEX")
-    namespace = optional_env("PINECONE_NAMESPACE", "default")
+    namespace = optional_env("PINECONE_NAMESPACE", DEFAULT_NAMESPACE)
 
-    # Models (configurable)
-    embed_model = optional_env("OPENAI_EMBED_MODEL", "text-embedding-3-small")
-    chat_model = optional_env("OPENAI_CHAT_MODEL", "gpt-4.1-mini")
+    embed_model = optional_env("OPENAI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
+    chat_model = optional_env("OPENAI_CHAT_MODEL", DEFAULT_CHAT_MODEL)
 
     oai = OpenAI(api_key=openai_key)
     pc = Pinecone(api_key=pinecone_key)
@@ -234,24 +286,35 @@ def main() -> None:
     qvec = embed_query(oai, embed_model, args.question)
     matches = pinecone_query(idx, namespace, qvec, args.top_k)
 
-    # Filter low-score matches (kept simple, optional)
     if args.min_score > 0:
         matches = [m for m in matches if m.get("score", 0.0) >= args.min_score]
 
+    raw_matches = matches
+    best_score = raw_matches[0]["score"] if raw_matches else 0.0
+
+    matches = select_matches_by_confidence(raw_matches)
     context = build_context(matches)
     context = truncate_context(context, args.max_context_chars)
 
     if args.debug:
+        print(f"best_score: {best_score:.4f}")
+        print(f"raw_matches: {len(raw_matches)}")
+        print(f"selected_matches: {len(matches)}\n")
+
         for m in matches:
             md = m.get("metadata", {}) or {}
             preview = (md.get("text") or "").strip().replace("\n", " ")
             if len(preview) > 160:
                 preview = preview[:160] + "..."
-            print(f"score: {m.get('score')}")
+            print(f"score: {m.get('score'):.4f}")
             print(f"id: {m.get('id')}")
             print(f"title: {md.get('title')}")
             print(f"topic: {md.get('topic')}")
             print(f"text_preview: {preview}\n")
+
+    if not matches or not context.strip():
+        print("I don't know based on the provided material.")
+        return
 
     ans = answer_question(oai, chat_model, args.question, context)
     print(ans)
