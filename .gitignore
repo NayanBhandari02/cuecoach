@@ -23,4 +23,4 @@ random.txt
 
 # OS junk
 .DS_Store
-.env
+.env.env
