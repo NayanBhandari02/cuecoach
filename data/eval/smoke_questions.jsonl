@@ -1,10 +1,10 @@
 {"q":"What is a legal opening break shot in pyramid?","mode":"answer","expect":["three","object","cushion"]}
 {"q":"Explain cue ball in hand from behind home-line.","mode":"answer","expect":["behind","home-line","place"]}
 {"q":"When is the cue ball considered in play?","mode":"answer","expect":["cue ball","in play"]}
-{"q":"What are the options after an illegal break in pyramid?","mode":"answer","expect":["rebreak","opponent"]}
+{"q":"What are the options after an illegal break in pyramid?","mode":"answer","expect":["accept","rebreak"]}
 {"q":"What is a push stroke foul?","mode":"answer","expect":["push","foul"]}
 {"q":"What does foot on floor mean?","mode":"refuse"}
 {"q":"What makes a shot legally completed?","mode":"answer","expect":["pocketed","cushion"]}
 {"q":"Is touching an object ball with clothing a foul?","mode":"answer","expect":["foul","clothing"]}
-{"q":"What is the rule about double hit?","mode":"answer","expect":["double","foul"]}
+{"q":"What is the rule about double hit?","mode":"answer","expect":["more than once","foul"]}
 {"q":"What happens if the breaker fails to meet legal break requirements?","mode":"answer","expect":["foul","break"]}

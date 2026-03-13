@@ -107,7 +107,21 @@ def truncate_context(context: str, max_chars: int) -> str:
     if len(context) <= max_chars:
         return context
     return context[:max_chars].rstrip() + "\n"
+def rewrite_query_for_retrieval(question: str) -> str:
+    """
+    Lightweight query rewriting for retrieval.
+    Keeps user-facing question unchanged, but improves vector search wording.
+    """
+    q = question.strip().lower()
 
+    rewrites = {
+        "what makes a shot legally completed?": "legal shot completion cue ball contacts object ball then ball pocketed or driven to cushion rule",
+        "when is the cue ball considered in play?": "cue ball in play rule definition",
+        "what are the options after an illegal break in pyramid?": "illegal break pyramid options rerack accept assign rebreak",
+        "what is the rule about double hit?": "double hit cue ball more than once foul rule",
+    }
+
+    return rewrites.get(q, question)    
 
 def select_matches_by_confidence(matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -197,7 +211,8 @@ def retrieve_debug(
     pc = Pinecone(api_key=pinecone_key)
     idx = pc.Index(pinecone_index)
 
-    qvec = embed_query(oai, emb_model, question)
+    retrieval_query = rewrite_query_for_retrieval(question)
+    qvec = embed_query(oai, emb_model, retrieval_query)
     matches = pinecone_query(idx, ns, qvec, top_k)
 
     if min_score > 0:
@@ -241,7 +256,8 @@ def answer(
     pc = Pinecone(api_key=pinecone_key)
     idx = pc.Index(pinecone_index)
 
-    qvec = embed_query(oai, emb_model, question)
+    retrieval_query = rewrite_query_for_retrieval(question)
+    qvec = embed_query(oai, emb_model, retrieval_query)
     matches = pinecone_query(idx, ns, qvec, top_k)
 
     if min_score > 0:
@@ -283,7 +299,8 @@ def main() -> None:
     pc = Pinecone(api_key=pinecone_key)
     idx = pc.Index(pinecone_index)
 
-    qvec = embed_query(oai, embed_model, args.question)
+    retrieval_query = rewrite_query_for_retrieval(args.question)
+    qvec = embed_query(oai, embed_model, retrieval_query)
     matches = pinecone_query(idx, namespace, qvec, args.top_k)
 
     if args.min_score > 0:

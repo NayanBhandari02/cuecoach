@@ -15,3 +15,8 @@ pypdfium2
 pillow
 openai
 pinecone
+langchain 
+langchain-openai 
+langchain-pinecone 
+langchain-core
+tiktoken

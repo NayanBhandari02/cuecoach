@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 
 from cuecoach.rag.ask import answer, retrieve_debug
 
+import re
 
 DEFAULT_SMOKE_PATH = Path("data/eval/smoke_questions.jsonl")
 REFUSAL_TEXT = "i don't know based on the provided material."
@@ -24,9 +25,17 @@ def load_jsonl(path: Path) -> List[Dict[str, Any]]:
     return rows
 
 
+def normalize_text(text: str) -> str:
+    text = text.lower()
+    text = text.replace("-", " ")
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def check_expect(answer_text: str, expects: List[str]) -> Tuple[bool, List[str]]:
-    answer_l = answer_text.lower()
-    missing = [e for e in expects if e.lower() not in answer_l]
+    answer_n = normalize_text(answer_text)
+    missing = [e for e in expects if normalize_text(e) not in answer_n]
     return (len(missing) == 0), missing
 
 
