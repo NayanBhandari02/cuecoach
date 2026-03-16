@@ -107,6 +107,8 @@ def truncate_context(context: str, max_chars: int) -> str:
     if len(context) <= max_chars:
         return context
     return context[:max_chars].rstrip() + "\n"
+
+
 def rewrite_query_for_retrieval(question: str) -> str:
     """
     Lightweight query rewriting for retrieval.
@@ -121,7 +123,8 @@ def rewrite_query_for_retrieval(question: str) -> str:
         "what is the rule about double hit?": "double hit cue ball more than once foul rule",
     }
 
-    return rewrites.get(q, question)    
+    return rewrites.get(q, question)
+
 
 def select_matches_by_confidence(matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -141,6 +144,100 @@ def select_matches_by_confidence(matches: List[Dict[str, Any]]) -> List[Dict[str
         return matches[:3]
     return matches[:4]
 
+def rewrite_query_with_llm(
+    client: OpenAI,
+    model: str,
+    question: str,
+) -> str:
+    """
+    Rewrite a user question into a better retrieval query.
+    Focus on fixing typos, ambiguity, and converting natural wording
+    into concise rulebook/search phrasing.
+    """
+    system = (
+        "You rewrite user questions into short retrieval queries for a billiards rules knowledge base.\n"
+        "Rules:\n"
+        "- Fix spelling mistakes and typos.\n"
+        "- Keep the meaning the same.\n"
+        "- Make the query concise and search-friendly.\n"
+        "- Prefer rulebook terms over conversational wording.\n"
+        "- Return only the rewritten query.\n"
+        "- Do not answer the question.\n"
+    )
+
+    user = f"User question:\n{question}"
+
+    resp = client.chat.completions.create(
+        model=model,
+        temperature=0.0,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    )
+
+    rewritten = (resp.choices[0].message.content or "").strip()
+    return rewritten or question
+
+def retrieve_with_fallback(
+    *,
+    oai: OpenAI,
+    idx: Any,
+    namespace: str,
+    emb_model: str,
+    chat_model: str,
+    question: str,
+    top_k: int,
+    min_score: float,
+) -> Dict[str, Any]:
+    """
+    Retrieval flow:
+    1. static/manual rewrite
+    2. retrieve
+    3. if weak, LLM rewrite and retrieve again
+    4. keep the better result
+    """
+    first_query = rewrite_query_for_retrieval(question)
+    first_vec = embed_query(oai, emb_model, first_query)
+    first_matches = pinecone_query(idx, namespace, first_vec, top_k)
+
+    if min_score > 0:
+        first_matches = [m for m in first_matches if m.get("score", 0.0) >= min_score]
+
+    first_best = first_matches[0]["score"] if first_matches else 0.0
+
+    # If first retrieval is already decent, keep it
+    if first_best >= 0.52:
+        return {
+            "retrieval_query": first_query,
+            "matches": first_matches,
+            "best_score": first_best,
+            "used_fallback": False,
+        }
+
+    second_query = rewrite_query_with_llm(oai, chat_model, question)
+    second_vec = embed_query(oai, emb_model, second_query)
+    second_matches = pinecone_query(idx, namespace, second_vec, top_k)
+
+    if min_score > 0:
+        second_matches = [m for m in second_matches if m.get("score", 0.0) >= min_score]
+
+    second_best = second_matches[0]["score"] if second_matches else 0.0
+
+    if second_best > first_best:
+        return {
+            "retrieval_query": second_query,
+            "matches": second_matches,
+            "best_score": second_best,
+            "used_fallback": True,
+        }
+
+    return {
+        "retrieval_query": first_query,
+        "matches": first_matches,
+        "best_score": first_best,
+        "used_fallback": False,
+    }
 
 # -----------------------------
 # Answering (core)
@@ -197,7 +294,7 @@ def retrieve_debug(
     min_score: float = 0.0,
     namespace: Optional[str] = None,
     embed_model: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     _load_env()
 
     openai_key = require_env("OPENAI_API_KEY")
@@ -206,21 +303,22 @@ def retrieve_debug(
 
     ns = namespace or optional_env("PINECONE_NAMESPACE", DEFAULT_NAMESPACE)
     emb_model = embed_model or optional_env("OPENAI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
+    ch_model = optional_env("OPENAI_CHAT_MODEL", DEFAULT_CHAT_MODEL)
 
     oai = OpenAI(api_key=openai_key)
     pc = Pinecone(api_key=pinecone_key)
     idx = pc.Index(pinecone_index)
 
-    retrieval_query = rewrite_query_for_retrieval(question)
-    qvec = embed_query(oai, emb_model, retrieval_query)
-    matches = pinecone_query(idx, ns, qvec, top_k)
-
-    if min_score > 0:
-        matches = [m for m in matches if m.get("score", 0.0) >= min_score]
-
-    return matches
-
-
+    return retrieve_with_fallback(
+        oai=oai,
+        idx=idx,
+        namespace=ns,
+        emb_model=emb_model,
+        chat_model=ch_model,
+        question=question,
+        top_k=top_k,
+        min_score=min_score,
+    )
 # -----------------------------
 # Answering (wrapper for eval/scripts)
 # -----------------------------
@@ -256,12 +354,18 @@ def answer(
     pc = Pinecone(api_key=pinecone_key)
     idx = pc.Index(pinecone_index)
 
-    retrieval_query = rewrite_query_for_retrieval(question)
-    qvec = embed_query(oai, emb_model, retrieval_query)
-    matches = pinecone_query(idx, ns, qvec, top_k)
+    retrieval_result = retrieve_with_fallback(
+        oai=oai,
+        idx=idx,
+        namespace=ns,
+        emb_model=emb_model,
+        chat_model=ch_model,
+        question=question,
+        top_k=top_k,
+        min_score=min_score,
+    )
 
-    if min_score > 0:
-        matches = [m for m in matches if m.get("score", 0.0) >= min_score]
+    matches = retrieval_result["matches"]
 
     matches = select_matches_by_confidence(matches)
     context = build_context(matches)

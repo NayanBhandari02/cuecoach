@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from cuecoach.rag.ask import answer, retrieve_debug
 
-import re
 
 DEFAULT_SMOKE_PATH = Path("data/eval/smoke_questions.jsonl")
 REFUSAL_TEXT = "i don't know based on the provided material."
@@ -71,14 +71,21 @@ def main() -> None:
         if not isinstance(expects, list):
             expects = [str(expects)]
 
-        matches = retrieve_debug(
+        debug_result = retrieve_debug(
             q,
             top_k=args.top_k,
             min_score=args.min_score,
         )
 
-        best_score = matches[0]["score"] if matches else 0.0
-        print(f"\nQ{i} DEBUG: best_score={best_score:.4f}, matches={len(matches)}")
+        matches = debug_result["matches"]
+        best_score = debug_result["best_score"]
+
+        print(
+            f"\nQ{i} DEBUG: best_score={best_score:.4f}, "
+            f"matches={len(matches)}, "
+            f"used_fallback={debug_result['used_fallback']}, "
+            f"retrieval_query={debug_result['retrieval_query']}"
+        )
 
         for j, m in enumerate(matches[:3], start=1):
             metadata = m.get("metadata", {}) or {}
