@@ -21,8 +21,8 @@ mode = st.radio(
 )
 
 with st.expander("Advanced options"):
-    top_k = st.slider("Top K", min_value=2, max_value=12, value=8, step=1)
-    min_score = st.number_input("Minimum score", min_value=0.0, max_value=1.0, value=0.0, step=0.01)
+    top_k = st.slider("Top K", min_value=2, max_value=12, value=5, step=1)
+    min_score = st.number_input("Minimum score", min_value=0.0, max_value=1.0, value=0.42, step=0.01)
     max_context_chars = st.number_input("Max context chars", min_value=1000, max_value=50000, value=12000, step=1000)
 
 if st.button("Ask", use_container_width=True):

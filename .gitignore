@@ -5,6 +5,8 @@ data/processed/
 data/ocr/
 # Generated chunks (RAG artifacts)
 data/chunks/
+data/eval/
+data/logs/
 
 
 # Virtual environments

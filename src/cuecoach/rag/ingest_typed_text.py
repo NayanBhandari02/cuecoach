@@ -14,12 +14,39 @@ def _slugify(name: str) -> str:
     return base or "doc"
 
 
+def _infer_topic(filename: str) -> str:
+    f = filename.lower()
+    if "rule" in f:
+        return "rules"
+    if "break" in f:
+        return "break"
+    if "aim" in f:
+        return "aiming"
+    if "spin" in f or "english" in f:
+        return "spin"
+    if "safety" in f:
+        return "safety"
+    if "pattern" in f or "runout" in f:
+        return "pattern_play"
+    return "misc"
+
+
+def _infer_skill_level(filename: str) -> str:
+    f = filename.lower()
+    if "advanced" in f or "pro" in f or "expert" in f:
+        return "advanced"
+    if "intermediate" in f:
+        return "intermediate"
+    return "beginner"
+
+
 def ingest_typed_pdfs(
     raw_dir: Path,
     out_dir: Path,
     *,
-    max_chars: int = 1400,
-    overlap_chars: int = 200,
+    max_chars: int = 2000,
+    overlap_chars: int = 300,
+    min_chunk_chars: int = 80,
 ) -> None:
     raw_dir = raw_dir.resolve()
     out_dir = out_dir.resolve()
@@ -35,19 +62,26 @@ def ingest_typed_pdfs(
     for pdf_path in pdfs:
         doc_id = _slugify(pdf_path.name)
         title = pdf_path.stem
+        topic = _infer_topic(pdf_path.name)
+        skill_level = _infer_skill_level(pdf_path.name)
 
-        # Text extraction (typed PDFs only)
         text = extract_pdf_text(pdf_path)
 
         meta = DocMeta(
             doc_id=doc_id,
             source="typed_pdf",
             title=title,
-            topic="misc",
-            skill_level="beginner",
+            topic=topic,
+            skill_level=skill_level,
         )
 
-        chunks = chunk_text(text, meta, max_chars=max_chars, overlap_chars=overlap_chars)
+        chunks = chunk_text(
+            text,
+            meta,
+            max_chars=max_chars,
+            overlap_chars=overlap_chars,
+            min_chunk_chars=min_chunk_chars,
+        )
 
         out_path = out_dir / f"{doc_id}.jsonl"
         with out_path.open("w", encoding="utf-8") as f:
@@ -58,6 +92,8 @@ def ingest_typed_pdfs(
         chars = len(text)
         print(f"- {pdf_path.name}")
         print(f"  doc_id: {doc_id}")
+        print(f"  topic: {topic}")
+        print(f"  skill_level: {skill_level}")
         print(f"  extracted_chars: {chars}")
         print(f"  chunks: {len(chunks)}")
         print(f"  out: {out_path.relative_to(Path.cwd())}\n")
@@ -67,6 +103,7 @@ if __name__ == "__main__":
     ingest_typed_pdfs(
         raw_dir=Path("data/raw/typed"),
         out_dir=Path("data/chunks/typed"),
-        max_chars=1400,
-        overlap_chars=200,
+        max_chars=2000,
+        overlap_chars=300,
+        min_chunk_chars=80,
     )

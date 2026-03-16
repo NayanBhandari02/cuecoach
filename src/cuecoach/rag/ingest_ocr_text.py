@@ -15,9 +15,7 @@ OUT_CHUNKS_DIR = Path("data/chunks/ocr")
 
 def slugify(name: str) -> str:
     """
-    Why:
-    - Stable doc_id from filename (portable across machines).
-    - Keeps vector-store ids clean later.
+    Stable doc_id from filename.
     """
     base = name.lower()
     base = re.sub(r"[^a-z0-9]+", "_", base)
@@ -27,9 +25,7 @@ def slugify(name: str) -> str:
 
 def infer_topic(filename: str) -> Topic:
     """
-    Why:
-    - Topic helps retrieval filters later (rules vs drills vs aiming).
-    - Simple heuristic now; can get smarter later.
+    Topic helps retrieval filters later.
     """
     f = filename.lower()
     if "rule" in f:
@@ -47,28 +43,30 @@ def infer_topic(filename: str) -> Topic:
     return "misc"
 
 
+def infer_skill_level(filename: str) -> str:
+    f = filename.lower()
+    if "advanced" in f or "pro" in f or "expert" in f:
+        return "advanced"
+    if "intermediate" in f:
+        return "intermediate"
+    return "beginner"
+
+
 def remove_page_markers(text: str) -> str:
     """
-    Why:
-    - OCR output often includes '--- page 12 ---' separators.
-    - These add noise to embeddings and retrieval.
+    OCR output often includes page separators.
     """
     return re.sub(r"(?im)^\s*---\s*page\s*\d+\s*---\s*$\n?", "", text)
 
 
 def clean_ocr_text(raw: str) -> str:
     """
-    Why this order:
-    1) repair_mojibake: fix 'â€œ' 'Â©' etc early so later matching works.
-    2) strip_front_matter: removes copyright/ISBN/contents pages that
-       you said you don't want in the RAG knowledge base.
-    3) remove_page_markers: optional cleanup for better embeddings.
+    Clean OCR text before chunking.
     """
     text = repair_mojibake(raw)
     text = strip_front_matter(text)
     text = remove_page_markers(text)
 
-    # Normalize whitespace a bit without being aggressive.
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
@@ -96,19 +94,25 @@ def main() -> None:
     parser.add_argument(
         "--max-chars",
         type=int,
-        default=1400,
+        default=2000,
         help="Max chars per chunk.",
     )
     parser.add_argument(
         "--overlap-chars",
         type=int,
-        default=200,
+        default=300,
         help="Overlap chars between chunks.",
+    )
+    parser.add_argument(
+        "--min-chunk-chars",
+        type=int,
+        default=80,
+        help="Minimum chunk size to keep.",
     )
     parser.add_argument(
         "--skill",
         default="beginner",
-        help="Skill level metadata.",
+        help="Default skill level metadata.",
     )
     args = parser.parse_args()
 
@@ -132,6 +136,7 @@ def main() -> None:
 
         doc_id = slugify(txt_path.stem)
         topic = infer_topic(txt_path.name)
+        skill_level = infer_skill_level(txt_path.name) if args.skill == "beginner" else args.skill
 
         meta = DocMeta(
             doc_id=doc_id,
@@ -140,7 +145,7 @@ def main() -> None:
             url=None,
             section=None,
             topic=topic,
-            skill_level=args.skill,
+            skill_level=skill_level,
         )
 
         chunks = chunk_text(
@@ -148,6 +153,7 @@ def main() -> None:
             meta,
             max_chars=args.max_chars,
             overlap_chars=args.overlap_chars,
+            min_chunk_chars=args.min_chunk_chars,
         )
 
         out_path = out_dir / f"{doc_id}.jsonl"
@@ -158,7 +164,8 @@ def main() -> None:
         total_chunks += len(chunks)
         print(
             f"{txt_path.name} -> {out_path.name} "
-            f"({len(chunks)} chunks, {len(raw)} -> {len(cleaned)} chars)"
+            f"({len(chunks)} chunks, {len(raw)} -> {len(cleaned)} chars, "
+            f"topic={topic}, skill={skill_level})"
         )
 
     print(f"Done. Total chunks: {total_chunks}")

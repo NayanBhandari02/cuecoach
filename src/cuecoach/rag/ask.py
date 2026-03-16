@@ -16,7 +16,7 @@ from pinecone import Pinecone
 DEFAULT_NAMESPACE = "default"
 DEFAULT_EMBED_MODEL = "text-embedding-3-small"
 DEFAULT_CHAT_MODEL = "gpt-4.1-mini"
-DEFAULT_TOP_K = 6
+DEFAULT_TOP_K = 5
 
 
 # -----------------------------
@@ -291,7 +291,7 @@ def retrieve_debug(
     question: str,
     *,
     top_k: int = DEFAULT_TOP_K,
-    min_score: float = 0.0,
+    min_score: float = 0.42,
     namespace: Optional[str] = None,
     embed_model: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -326,8 +326,8 @@ def answer(
     question: str,
     *,
     top_k: int = DEFAULT_TOP_K,
-    min_score: float = 0.1,
-    max_context_chars: int = 20000,
+    min_score: float = 0.42,
+    max_context_chars: int = 8000,
     namespace: Optional[str] = None,
     embed_model: Optional[str] = None,
     chat_model: Optional[str] = None,
@@ -386,8 +386,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ask questions against Pinecone RAG index.")
     parser.add_argument("--question", required=True, help="User question.")
     parser.add_argument("--debug", action="store_true", help="Print retrieval debug info.")
-    parser.add_argument("--top-k", type=int, default=6, help="How many matches to retrieve.")
-    parser.add_argument("--min-score", type=float, default=0.0, help="Drop matches below this score.")
+    parser.add_argument("--top-k", type=int, default=5, help="How many matches to retrieve.")
+    parser.add_argument("--min-score", type=float, default=0.42, help="Drop matches below this score.")
     parser.add_argument("--max-context-chars", type=int, default=12000, help="Max context chars fed to LLM")
     args = parser.parse_args()
 

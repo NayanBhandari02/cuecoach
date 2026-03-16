@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -19,53 +20,122 @@ class DocMeta:
 
 
 def _stable_chunk_id(doc_id: str, section: Optional[str], idx: int, text: str) -> str:
-    # Stable across machines and runs. Good for citations + dedupe.
     h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
     sec = section or "root"
     return f"{doc_id}::{sec}::{idx:04d}::{h}"
+
+
+def _clean_text(text: str) -> str:
+    """
+    Light cleanup that preserves rule numbering and structure.
+    """
+    if not text:
+        return ""
+
+    lines: List[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            lines.append("")
+            continue
+
+        lowered = line.lower()
+        if lowered in {
+            "return to contents",
+            "contents",
+        }:
+            continue
+
+        line = re.sub(r"\s+", " ", line)
+        lines.append(line)
+
+    text = "\n".join(lines)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.strip()
+
+
+def _looks_like_section_header(text: str) -> bool:
+    """
+    Heuristic for section-like lines.
+    Examples:
+    - 3.7 Double Hit / Frozen Balls
+    - 11.3 Legal Break Requirements
+    - Cue Ball In Hand
+    """
+    t = text.strip()
+    if not t:
+        return False
+
+    if len(t) > 120:
+        return False
+
+    if "\n" in t:
+        return False
+
+    if re.match(r"^\d+(\.\d+)*[.)]?\s+\S+", t):
+        return True
+
+    words = t.split()
+    if 1 <= len(words) <= 10 and t == t.title():
+        return True
+
+    return False
+
+
+def _split_paragraphs(text: str) -> List[str]:
+    return [p.strip() for p in text.split("\n\n") if p.strip()]
 
 
 def chunk_text(
     text: str,
     meta: DocMeta,
     *,
-    max_chars: int = 1400,
-    overlap_chars: int = 200,
+    max_chars: int = 2000,
+    overlap_chars: int = 300,
+    min_chunk_chars: int = 80,
 ) -> List[Chunk]:
     """
-    Chunk text into overlapping segments.
-
-    Why chars not tokens (for now):
-    - Offline chunking should be fast and dependency-light.
-    - We'll move to token-aware chunking later once OpenAI is in the loop.
+    Chunk text into overlapping segments with light structure awareness.
     """
-    cleaned = "\n".join([line.rstrip() for line in text.splitlines()]).strip()
+    cleaned = _clean_text(text)
     if not cleaned:
         return []
+
     if overlap_chars >= max_chars:
         raise ValueError("overlap_chars must be < max_chars")
 
-    # Split by blank lines (paragraph-ish). Works well for instructional articles and rules PDFs.
-    parts = [p.strip() for p in cleaned.split("\n\n") if p.strip()]
+    parts = _split_paragraphs(cleaned)
+    if not parts:
+        return []
 
     chunks: List[str] = []
     buf = ""
+    current_header: Optional[str] = None
 
     for p in parts:
-        candidate = (buf + "\n\n" + p).strip() if buf else p
+        para = p.strip()
+        if not para:
+            continue
+
+        if _looks_like_section_header(para):
+            current_header = para
+            continue
+
+        para_with_header = f"{current_header}\n\n{para}" if current_header else para
+        candidate = (buf + "\n\n" + para_with_header).strip() if buf else para_with_header
+
         if len(candidate) <= max_chars:
             buf = candidate
             continue
 
-        # Flush current buffer if it has content
         if buf:
-            chunks.append(buf)
+            if len(buf) >= min_chunk_chars:
+                chunks.append(buf)
 
-            # Start new buffer with overlap tail
             tail = buf[-overlap_chars:] if overlap_chars > 0 else ""
             if tail:
-                # Prefer starting overlap at a whitespace boundary to avoid mid-word starts,
-                # but don't destroy overlap when the tail has no whitespace (e.g., "AAAAA...").
                 first_ws = None
                 for j, ch in enumerate(tail):
                     if ch.isspace():
@@ -73,32 +143,30 @@ def chunk_text(
                         break
                 if first_ws is not None:
                     tail = tail[first_ws:].lstrip()
-            buf = (tail + "\n\n" + p).strip() if tail else p
-        else:
-            # Single paragraph too large: safe hard split with guaranteed progress
-            if overlap_chars >= max_chars:
-                raise ValueError("overlap_chars must be < max_chars to guarantee progress")
 
+            buf = (tail + "\n\n" + para_with_header).strip() if tail else para_with_header
+        else:
             start = 0
-            n = len(p)
+            n = len(para_with_header)
+
             while start < n:
                 end = min(start + max_chars, n)
-                piece = p[start:end].strip()
-                if piece:
+                piece = para_with_header[start:end].strip()
+
+                if len(piece) >= min_chunk_chars:
                     chunks.append(piece)
 
                 if end >= n:
-                    break  # ✅ important: stop after writing the final chunk
+                    break
 
-                # next start keeps overlap but MUST move forward
                 next_start = end - overlap_chars
                 if next_start <= start:
-                    next_start = end  # ✅ fallback: no overlap, but progress is guaranteed
+                    next_start = end
                 start = next_start
 
             buf = ""
 
-    if buf:
+    if buf and len(buf) >= min_chunk_chars:
         chunks.append(buf)
 
     out: List[Chunk] = []
@@ -116,4 +184,5 @@ def chunk_text(
                 text=ctext,
             )
         )
+
     return out
