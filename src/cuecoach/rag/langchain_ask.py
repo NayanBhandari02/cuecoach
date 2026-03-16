@@ -108,7 +108,13 @@ def answer_langchain(
                     "Explain the answer clearly and naturally in your own words.\n"
                     "Do not invent facts that are not supported by the provided material.\n"
                     "If the material does not contain enough information, respond exactly:\n"
-                    "I don't know based on the provided material."
+                    "I don't know based on the provided material.\n\n"
+                    "When the answer is available, structure it like this:\n"
+                    "1. Give a short direct answer first.\n"
+                    "2. Then explain what the rule means in practice.\n"
+                    "3. If helpful, give one short example.\n\n"
+                    "Keep the answer concise, useful, and easy to understand.\n"
+                    "Do not mention the provided material, sources, or context."
                 ),
             ),
             (
@@ -123,7 +129,7 @@ def answer_langchain(
 
     llm = ChatOpenAI(
         model=ch_model,
-        temperature=0.2,
+        temperature=0.1,
     )
 
     chain = prompt | llm
