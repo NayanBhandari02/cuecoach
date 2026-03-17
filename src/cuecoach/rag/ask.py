@@ -88,6 +88,22 @@ def contextualize_question_with_history(
     rewritten = (resp.choices[0].message.content or "").strip()
     return rewritten or question
 
+def needs_contextualization(question: str, chat_history: Optional[List[Dict[str, str]]] = None) -> bool:
+    if not chat_history:
+        return False
+
+    q = question.strip().lower()
+    vague_terms = {"it", "this", "that", "they", "them", "those", "these", "he", "she", "him", "her"}
+    words = set(q.replace("?", "").replace(".", "").split())
+
+    if words & vague_terms:
+        return True
+
+    if len(q.split()) <= 6:
+        return True
+
+    return False
+
 # -----------------------------
 # Retrieval
 # -----------------------------
@@ -405,12 +421,15 @@ def answer(
     oai = OpenAI(api_key=openai_key)
     pc = Pinecone(api_key=pinecone_key)
     idx = pc.Index(pinecone_index)
-    standalone_question = contextualize_question_with_history(
-        oai,
-        ch_model,
-        question,
-        chat_history,
-    )
+    if needs_contextualization(question, chat_history):
+        standalone_question = contextualize_question_with_history(
+            oai,
+            ch_model,
+            question,
+            chat_history,
+        )
+    else:
+        standalone_question = question
     retrieval_result = retrieve_with_fallback(
         oai=oai,
         idx=idx,

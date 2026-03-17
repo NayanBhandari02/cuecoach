@@ -17,6 +17,7 @@ from cuecoach.rag.ask import (
     _load_env,
     build_context,
     contextualize_question_with_history,
+    needs_contextualization,
     embed_query,
     optional_env,
     retrieve_with_fallback,
@@ -85,12 +86,15 @@ def answer_langchain(
     pc = Pinecone(api_key=pinecone_key)
     idx = pc.Index(pinecone_index)
 
-    standalone_question = contextualize_question_with_history(
-        oai,
-        ch_model,
-        question,
-        chat_history,
-    )
+    if needs_contextualization(question, chat_history):
+        standalone_question = contextualize_question_with_history(
+            oai,
+            ch_model,
+            question,
+            chat_history,
+        )
+    else:
+        standalone_question = question
 
     retrieval_result = retrieve_with_fallback(
         oai=oai,
