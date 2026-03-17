@@ -16,8 +16,10 @@ from cuecoach.rag.ask import (
     DEFAULT_TOP_K,
     _load_env,
     build_context,
+    contextualize_question_with_history,
     embed_query,
     optional_env,
+    retrieve_with_fallback,
     pinecone_query,
     require_env,
     select_matches_by_confidence,
@@ -56,16 +58,18 @@ def answer_langchain(
     question: str,
     *,
     top_k: int = DEFAULT_TOP_K,
-    min_score: float = 0.1,
+    min_score: float = 0.42,
     max_context_chars: int = 20000,
     namespace: Optional[str] = None,
     embed_model: Optional[str] = None,
     chat_model: Optional[str] = None,
+    chat_history: Optional[list[dict[str, str]]] = None,
 ) -> str:
     """
     Hybrid approach:
-    - keep your current Pinecone retrieval + confidence gating
+    - keep current Pinecone retrieval + confidence gating
     - use LangChain prompt + ChatOpenAI for a more natural explanation
+    - use same-chat history to rewrite follow-up questions into standalone ones
     """
     _load_env()
 
@@ -77,16 +81,29 @@ def answer_langchain(
     emb_model = embed_model or optional_env("OPENAI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
     ch_model = chat_model or optional_env("OPENAI_CHAT_MODEL", DEFAULT_CHAT_MODEL)
 
-    # Keep your existing retrieval logic
     oai = OpenAI(api_key=openai_key)
     pc = Pinecone(api_key=pinecone_key)
     idx = pc.Index(pinecone_index)
 
-    qvec = embed_query(oai, emb_model, question)
-    matches = pinecone_query(idx, ns, qvec, top_k)
+    standalone_question = contextualize_question_with_history(
+        oai,
+        ch_model,
+        question,
+        chat_history,
+    )
 
-    if min_score > 0:
-        matches = [m for m in matches if m.get("score", 0.0) >= min_score]
+    retrieval_result = retrieve_with_fallback(
+        oai=oai,
+        idx=idx,
+        namespace=ns,
+        emb_model=emb_model,
+        chat_model=ch_model,
+        question=standalone_question,
+        top_k=top_k,
+        min_score=min_score,
+    )
+
+    matches = retrieval_result["matches"]
 
     matches = select_matches_by_confidence(matches)
     if not matches:
@@ -97,7 +114,6 @@ def answer_langchain(
     if not context.strip():
         return "I don't know based on the provided material."
 
-    # LangChain LLM layer
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -133,6 +149,6 @@ def answer_langchain(
     )
 
     chain = prompt | llm
-    resp = chain.invoke({"question": question, "context": context})
+    resp = chain.invoke({"question": standalone_question, "context": context})
 
     return str(resp.content).strip()

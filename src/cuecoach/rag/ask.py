@@ -36,6 +36,57 @@ def require_env(name: str) -> str:
 def optional_env(name: str, default: str) -> str:
     return os.getenv(name, default)
 
+def contextualize_question_with_history(
+    client: OpenAI,
+    model: str,
+    question: str,
+    chat_history: Optional[List[Dict[str, str]]] = None,
+) -> str:
+    """
+    Rewrite a follow-up user question into a standalone question using same-chat history.
+    If no history is provided, return the original question unchanged.
+    """
+    if not chat_history:
+        return question
+
+    history_lines: List[str] = []
+    for msg in chat_history[-8:]:
+        role = str(msg.get("role", "")).strip().lower()
+        content = str(msg.get("content", "")).strip()
+        if not content or role not in {"user", "assistant"}:
+            continue
+        history_lines.append(f"{role}: {content}")
+
+    if not history_lines:
+        return question
+
+    system = (
+        "You rewrite the latest user question into a standalone question using the chat history.\n"
+        "Rules:\n"
+        "- Preserve the user's meaning.\n"
+        "- Resolve references like 'it', 'that', 'this', 'those', 'him', 'her'.\n"
+        "- Keep the rewritten question concise.\n"
+        "- Do not answer the question.\n"
+        "- Return only the rewritten standalone question.\n"
+    )
+
+    user = (
+        "Chat history:\n"
+        + "\n".join(history_lines)
+        + f"\n\nLatest user question:\n{question}"
+    )
+
+    resp = client.chat.completions.create(
+        model=model,
+        temperature=0.0,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    )
+
+    rewritten = (resp.choices[0].message.content or "").strip()
+    return rewritten or question
 
 # -----------------------------
 # Retrieval
@@ -327,10 +378,11 @@ def answer(
     *,
     top_k: int = DEFAULT_TOP_K,
     min_score: float = 0.42,
-    max_context_chars: int = 8000,
+    max_context_chars: int = 20000,
     namespace: Optional[str] = None,
     embed_model: Optional[str] = None,
     chat_model: Optional[str] = None,
+    chat_history: Optional[List[Dict[str, str]]] = None,
 ) -> str:
     """
     Convenience wrapper that:
@@ -353,14 +405,19 @@ def answer(
     oai = OpenAI(api_key=openai_key)
     pc = Pinecone(api_key=pinecone_key)
     idx = pc.Index(pinecone_index)
-
+    standalone_question = contextualize_question_with_history(
+        oai,
+        ch_model,
+        question,
+        chat_history,
+    )
     retrieval_result = retrieve_with_fallback(
         oai=oai,
         idx=idx,
         namespace=ns,
         emb_model=emb_model,
         chat_model=ch_model,
-        question=question,
+        question=standalone_question,
         top_k=top_k,
         min_score=min_score,
     )
@@ -374,7 +431,7 @@ def answer(
     if not matches or not context.strip():
         return "I don't know based on the provided material."
 
-    return answer_question(oai, ch_model, question, context)
+    return answer_question(oai, ch_model, standalone_question, context)
 
 
 # -----------------------------
